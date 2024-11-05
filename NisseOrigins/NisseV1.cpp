@@ -1,5 +1,10 @@
 #include <iostream>
+#include <sstream>
 #include <exception>
+#include <stdexcept>
+
+#include <sys/socket.h>
+#include <arpa/inet.h>
 
 /*
  * Class Declarations:
@@ -13,6 +18,17 @@
  *      Server:             A Unix socket listening for incoming connections.
  *      WebServer:          A class to represent and manage incoming connections.
  */
+
+class ErrorMessage
+{
+    std::stringstream   ss;
+    public:
+        template<typename T>
+        ErrorMessage& operator<<(T const& data) {ss << data;return *this;}
+
+        operator std::string() {return ss.str();}
+};
+
 class Socket;
 class HttpRequest
 {
@@ -32,11 +48,15 @@ class HttpResponse
 
 class Socket
 {
+    int fd;
     public:
+        Socket(int fd);
 };
 
 class Server
 {
+    static constexpr int backlog = 5;
+    int fd;
     public:
         Server(int port);
 
@@ -112,12 +132,51 @@ void WebServer::handleConnection(Socket& socket)
 // Server
 // ======
 Server::Server(int port)
-{}
+{
+    fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd == -1) {
+        throw std::runtime_error{ErrorMessage{} << "Failed to create socket: " << errno << " " << strerror(errno)};
+    }
+
+    struct ::sockaddr_in        serverAddr{};
+    serverAddr.sin_family       = AF_INET;
+    serverAddr.sin_port         = htons(port);
+    serverAddr.sin_addr.s_addr  = INADDR_ANY;
+
+    int bindStatus = ::bind(fd, reinterpret_cast<struct ::sockaddr*>(&serverAddr), sizeof(serverAddr));
+    if (bindStatus == -1) {
+        throw std::runtime_error{ErrorMessage{} << "Failed to bind socket: " << errno << " " << strerror(errno)};
+    }
+
+    int listenStatus = ::listen(fd, backlog);
+    if (listenStatus == -1) {
+        throw std::runtime_error{ErrorMessage{} << "Failed to listen socket: " << errno << " " << strerror(errno)};
+    }
+}
 
 Socket Server::accept()
 {
-    return Socket{};
+    ::sockaddr_storage  serverStorage;
+    ::socklen_t         addrSize   = sizeof(serverStorage);
+
+    while (true)
+    {
+        int accept = ::accept(fd, reinterpret_cast<struct ::sockaddr*>(&serverStorage), &addrSize);
+        if (accept == -1 && errno == EINTR) {
+            continue;
+        }
+        if (accept == -1) {
+            throw std::runtime_error{ErrorMessage{} << "Failed to accept socket: " << errno << " " << strerror(errno)};
+        }
+        return Socket{accept};
+    }
 }
+
+// Socket
+// ======
+Socket::Socket(int fd)
+    : fd(fd)
+{}
 
 // HttpRequest
 // ===========
