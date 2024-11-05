@@ -1,11 +1,13 @@
 #include <iostream>
 #include <sstream>
+#include <fstream>
 #include <string>
 #include <string_view>
 #include <vector>
 #include <tuple>
 #include <exception>
 #include <stdexcept>
+#include <filesystem>
 
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -26,22 +28,32 @@
  *      WebServer:          A class to represent and manage incoming connections.
  */
 
-class ErrorMessage
+class Message
 {
     std::stringstream   ss;
     public:
         template<typename T>
-        ErrorMessage& operator<<(T const& data) {ss << data;return *this;}
+        Message& operator<<(T const& data) {ss << data;return *this;}
 
         operator std::string() {return ss.str();}
+};
+
+struct ErrorStatus
+{
+    ErrorStatus()
+        : errorCode{200}
+        , errorMessage{"OK"}
+    {}
+
+    int             errorCode;
+    std::string     errorMessage;
+    std::string     humanInformation;
 };
 
 class Socket;
 class HttpRequest
 {
-    int             errorCode;
-    std::string     errorMessage;
-    std::string     humanInformation;
+    ErrorStatus     status;
 
     std::string     method;
     std::string     URI;
@@ -49,7 +61,10 @@ class HttpRequest
 
     public:
         HttpRequest(Socket& socket);
-        bool isValid() const {return errorCode == 200;}
+        bool isValid() const {return status.errorCode == 200;}
+
+        ErrorStatus const&  getStatus()         const   {return status;}
+        std::string const&  getURI()            const   {return URI;}
 
     private:
         std::tuple<std::string, std::string>                splitHeader(std::string_view header);
@@ -58,16 +73,24 @@ class HttpRequest
 
 class HttpResponse
 {
+    HttpRequest const&  request;
+    ErrorStatus         status;
+
     public:
         HttpResponse(HttpRequest const& request);
 
         void send(Socket& socket);
+    private:
+        std::filesystem::path getFilePath();
 };
 
 class Socket
 {
+    static constexpr std::size_t    inputBufferGrowth = 500;
+    static constexpr std::size_t    outputBufferMax   = 1000;
     int                 fd;
     std::vector<char>   buffer;
+    std::vector<char>   outputBuffer;
     std::string_view    currentLine;
     bool                moreData;
     public:
@@ -86,6 +109,10 @@ class Socket
         std::string_view    getNextLine();
         void ignore(std::size_t size);
 
+        void sendMessage(std::string const& message);
+
+        void sync();
+
         bool isOpen()   const {return fd != 0;}
         bool hasData()  const {return !buffer.empty() || moreData;}
         void close();
@@ -93,6 +120,7 @@ class Socket
         void removeCurrentLine();
         bool checkLineInBuffer();
         void readMoreData(std::size_t maxSize, bool required = false);
+        void sendData(char const* buffer, std::size_t size);
 };
 
 class Server
@@ -119,6 +147,9 @@ class WebServer
 };
 
 // The application body.
+
+static const std::filesystem::path  contentDir{"/srv/www"};
+
 int main()
 {
     static constexpr int port = 8080;
@@ -187,7 +218,7 @@ Server::Server(int port)
 {
     fd = ::socket(AF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
-        throw std::runtime_error{ErrorMessage{} << "Failed to create socket: " << errno << " " << strerror(errno)};
+        throw std::runtime_error{Message{} << "Failed to create socket: " << errno << " " << strerror(errno)};
     }
 
     struct ::sockaddr_in        serverAddr{};
@@ -197,12 +228,12 @@ Server::Server(int port)
 
     int bindStatus = ::bind(fd, reinterpret_cast<struct ::sockaddr*>(&serverAddr), sizeof(serverAddr));
     if (bindStatus == -1) {
-        throw std::runtime_error{ErrorMessage{} << "Failed to bind socket: " << errno << " " << strerror(errno)};
+        throw std::runtime_error{Message{} << "Failed to bind socket: " << errno << " " << strerror(errno)};
     }
 
     int listenStatus = ::listen(fd, backlog);
     if (listenStatus == -1) {
-        throw std::runtime_error{ErrorMessage{} << "Failed to listen socket: " << errno << " " << strerror(errno)};
+        throw std::runtime_error{Message{} << "Failed to listen socket: " << errno << " " << strerror(errno)};
     }
 }
 
@@ -226,7 +257,7 @@ Socket Server::accept()
             continue;
         }
         if (accept == -1) {
-            throw std::runtime_error{ErrorMessage{} << "Failed to accept socket: " << errno << " " << strerror(errno)};
+            throw std::runtime_error{Message{} << "Failed to accept socket: " << errno << " " << strerror(errno)};
         }
         return Socket{accept};
     }
@@ -238,7 +269,8 @@ Socket::Socket(int fd)
     : fd{fd}
     , moreData{true}
 {
-    buffer.reserve(1000);
+    buffer.reserve(outputBufferMax);
+    outputBuffer.reserve(outputBufferMax);
 }
 
 Socket::~Socket()
@@ -264,6 +296,7 @@ void Socket::swap(Socket& other) noexcept
     using std::swap;
     swap(fd,            other.fd);
     swap(buffer,        other.buffer);
+    swap(outputBuffer,  other.outputBuffer);
     swap(currentLine,   other.currentLine);
     swap(moreData,      other.moreData);
 }
@@ -278,6 +311,7 @@ void Socket::close()
         }
         fd = 0;
         buffer.clear();
+        outputBuffer.clear();
         currentLine ="";
         moreData = false;
     }
@@ -293,7 +327,7 @@ std::string_view Socket::getNextLine()
 
     while (moreData)
     {
-        readMoreData(500);
+        readMoreData(inputBufferGrowth);
         if (checkLineInBuffer()) {
             return currentLine;
         }
@@ -356,7 +390,7 @@ void Socket::readMoreData(std::size_t maxSize, bool required)
             continue;
         }
         if (nextChunk == -1) {
-            throw std::runtime_error(ErrorMessage{} << "Catastrophic read failure: " << errno << " " << strerror(errno));
+            throw std::runtime_error(Message{} << "Catastrophic read failure: " << errno << " " << strerror(errno));
         }
         if (nextChunk == 0) {
             // Stream closed.
@@ -370,12 +404,46 @@ void Socket::readMoreData(std::size_t maxSize, bool required)
     buffer.resize(currentSize + amountRead);
 }
 
+void Socket::sendMessage(std::string const& message)
+{
+    if (outputBuffer.size() + message.size() > outputBufferMax)
+    {
+        sync();
+        sendData(&message[0], std::size(message));
+    }
+    else {
+        std::copy(std::begin(message), std::end(message), std::back_inserter(outputBuffer));
+    }
+}
+
+void Socket::sync()
+{
+    if (std::size(outputBuffer) > 0)
+    {
+        sendData(&outputBuffer[0], std::size(outputBuffer));
+        outputBuffer.clear();
+    }
+}
+
+void Socket::sendData(char const* buffer, std::size_t size)
+{
+    std::size_t sentData = 0;
+    while (sentData != size)
+    {
+        ::ssize_t writeStatus = ::write(fd, buffer + sentData, size - sentData);
+        if (writeStatus == -1 && errno == EINTR) {
+            continue;
+        }
+        if (writeStatus == -1) {
+            throw std::runtime_error(Message{} << "Failed to write: " << fd << " Code: " << errno << " " << strerror(errno));
+        }
+        sentData += writeStatus;
+    }
+}
 
 // HttpRequest
 // ===========
 HttpRequest::HttpRequest(Socket& socket)
-    : errorCode{200}
-    , errorMessage{"OK"}
 {
     using std::literals::operator""sv;
     using std::literals::operator""s;
@@ -384,27 +452,27 @@ HttpRequest::HttpRequest(Socket& socket)
     std::string_view firstLine      = socket.getNextLine();
     std::tie(method, URI, version)  = splitFirstLine(firstLine);
     if (method != "GET"s) {
-        errorCode = 405;
-        errorMessage = "Method Not Allowed";
-        humanInformation = ErrorMessage{} << "HTTP method '" << method << "' is not supported";
+        status.errorCode = 405;
+        status.errorMessage = "Method Not Allowed";
+        status.humanInformation = Message{} << "HTTP method '" << method << "' is not supported";
         return;
     }
     if (version != "HTTP/1.1") {
-        errorCode = 400;
-        errorMessage = "Bad Request";
-        humanInformation = ErrorMessage{} << "HTTP version '" << version << "' is not supported";
+        status.errorCode = 400;
+        status.errorMessage = "Bad Request";
+        status.humanInformation = Message{} << "HTTP version '" << version << "' is not supported";
         return;
     }
 
     std::string_view header;
-    while ((header = socket.getNextLine()) != "\r\n"sv && errorCode == 200)
+    while ((header = socket.getNextLine()) != "\r\n"sv && status.errorCode == 200)
     {
         auto [name, value] = splitHeader(header);
         if (name == "content-length"s) {
             bodySize = std::stoi(value);
         }
     }
-    if (errorCode == 200) {
+    if (status.errorCode == 200) {
         socket.ignore(bodySize);
     }
 }
@@ -435,9 +503,9 @@ std::tuple<std::string, std::string> HttpRequest::splitHeader(std::string_view h
 {
     auto sep = header.find(':');
     if (sep == std::string_view::npos) {
-        errorCode = 400;
-        errorMessage = "Bad Request";
-        humanInformation = ErrorMessage{} << "HTTP message header badly formatted '" << header << "'";
+        status.errorCode = 400;
+        status.errorMessage = "Bad Request";
+        status.humanInformation = Message{} << "HTTP message header badly formatted '" << header << "'";
         return {std::string{header}, ""};
     }
     std::string     name{std::begin(header), std::begin(header) + sep};
@@ -449,8 +517,71 @@ std::tuple<std::string, std::string> HttpRequest::splitHeader(std::string_view h
 // HttpResponse
 // ============
 HttpResponse::HttpResponse(HttpRequest const& request)
+    : request{request}
+    , status{request.getStatus()}
 {}
 
 void HttpResponse::send(Socket& socket)
-{}
+{
+    std::filesystem::path   filePath    = getFilePath();
+
+    if (status.errorCode != 200)
+    {
+        socket.sendMessage(Message{} << "HTTP/1.1 " << status.errorCode << " " << status.errorMessage << "\r\n");
+        socket.sendMessage(Message{} << "message: " << status.humanInformation << "\r\n");
+        socket.sendMessage("content-length: 0\r\n");
+        socket.sendMessage("\r\n");
+        socket.sync();
+        return;
+    }
+
+    std::uintmax_t fileSize = std::filesystem::file_size(filePath);
+
+    socket.sendMessage("HTTP/1.1 200 OK\r\n");
+    socket.sendMessage(Message{} << "content-length: " << fileSize << "\r\n");
+    socket.sendMessage("\r\n");
+
+    std::ifstream   file(filePath);
+
+    std::string line;
+    while (std::getline(file, line))
+    {
+        socket.sendMessage(line);
+        if (file) {
+            socket.sendMessage("\n");
+        }
+    }
+    socket.sync();
+}
+
+std::filesystem::path HttpResponse::getFilePath()
+{
+    if (status.errorCode != 200) {
+        return {};
+    }
+
+    std::filesystem::path   uriPath{request.getURI()};
+    std::filesystem::path   requestPath = std::filesystem::path{uriPath}.lexically_normal();
+
+    if (requestPath.empty() || (*requestPath.begin()) == "..") {
+        status.errorCode = 400;
+        status.errorMessage = "Bad Request";
+        status.humanInformation = Message{} << "Invalid Request Path: " << requestPath;
+        return {};
+    }
+
+    std::error_code ec;
+    std::filesystem::path   filePath = std::filesystem::canonical(std::filesystem::path{contentDir} /= requestPath, ec);
+    if (!ec && std::filesystem::is_directory(filePath)) {
+        filePath = std::filesystem::canonical(filePath /= "index.html", ec);
+    }
+    if (ec || !std::filesystem::is_regular_file(filePath)) {
+        status.errorCode = 404;
+        status.errorMessage = "Not Found";
+        status.humanInformation = Message{} << "No file found at: " << requestPath;
+        return {};
+    }
+
+    return filePath;
+}
 
