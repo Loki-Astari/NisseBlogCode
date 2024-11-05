@@ -2,7 +2,5 @@
 
 int main()
 {
-    std::cout << "NisseV1\n";
-
-    
+    std::cout << "Nisse Proto 1\n";
 }
