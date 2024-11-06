@@ -18,6 +18,8 @@
 /*
  * Class Declarations:
  *
+ *      Message:            Object to build a string dynamically.
+ *      ErrorStatus:        Error state that is reported back on each request.
  *      HttpRequest:        An HTTP request object that has been read from a 'Socket'.
  *      HttpResponse:       An HTTP response object that can be written to a 'Socket' in
  *                          response to an HttpRequest.
@@ -79,9 +81,9 @@ class HttpResponse
     public:
         HttpResponse(HttpRequest const& request);
 
-        void send(Socket& socket);
+        void send(Socket& socket, std::filesystem::path const& contentDir);
     private:
-        std::filesystem::path getFilePath();
+        std::filesystem::path getFilePath(std::filesystem::path const& contentDir);
 };
 
 class Socket
@@ -136,10 +138,11 @@ class Server
 
 class WebServer
 {
-    Server      connection;
-    bool        finished;
+    Server                          connection;
+    bool                            finished;
+    std::filesystem::path const&    contentDir;
     public:
-        WebServer(int port);
+        WebServer(int port, std::filesystem::path const& contentDir);
 
         void run();
     private:
@@ -148,15 +151,22 @@ class WebServer
 
 // The application body.
 
-static const std::filesystem::path  contentDir{"/srv/www"};
 
-int main()
+int main(int argc, char* argv[])
 {
-    static constexpr int port = 8080;
+    if (argc != 3)
+    {
+        std::cerr << "Usage: NisseV1 <port> <documentPath>" << "\n";
+        return 1;
+    }
+
     try
     {
+        static const int port = std::stoi(argv[1]);
+        static const std::filesystem::path  contentDir  = std::filesystem::canonical(argv[2]);
+
         std::cout << "Nisse Proto 1\n";
-        WebServer   server(port);
+        WebServer   server(port, contentDir);
         server.run();
     }
     catch(std::exception const& e)
@@ -177,9 +187,10 @@ int main()
 
 // WebServer
 // =========
-WebServer::WebServer(int port)
+WebServer::WebServer(int port, std::filesystem::path const& contentDir)
     : connection{port}
     , finished{false}
+    , contentDir{contentDir}
 {}
 
 void WebServer::run()
@@ -200,7 +211,7 @@ void WebServer::handleConnection(Socket& socket)
     {
         HttpRequest     request(socket);
         HttpResponse    response(request);
-        response.send(socket);
+        response.send(socket, contentDir);
 
         if (!request.isValid())
         {
@@ -425,12 +436,12 @@ void Socket::sync()
     }
 }
 
-void Socket::sendData(char const* buffer, std::size_t size)
+void Socket::sendData(char const* data, std::size_t size)
 {
     std::size_t sentData = 0;
     while (sentData != size)
     {
-        ::ssize_t writeStatus = ::write(fd, buffer + sentData, size - sentData);
+        ::ssize_t writeStatus = ::write(fd, data + sentData, size - sentData);
         if (writeStatus == -1 && errno == EINTR) {
             continue;
         }
@@ -521,9 +532,9 @@ HttpResponse::HttpResponse(HttpRequest const& request)
     , status{request.getStatus()}
 {}
 
-void HttpResponse::send(Socket& socket)
+void HttpResponse::send(Socket& socket, std::filesystem::path const& contentDir)
 {
-    std::filesystem::path   filePath    = getFilePath();
+    std::filesystem::path   filePath    = getFilePath(contentDir);
 
     if (status.errorCode != 200)
     {
@@ -554,7 +565,7 @@ void HttpResponse::send(Socket& socket)
     socket.sync();
 }
 
-std::filesystem::path HttpResponse::getFilePath()
+std::filesystem::path HttpResponse::getFilePath(std::filesystem::path const& contentDir)
 {
     if (status.errorCode != 200) {
         return {};
