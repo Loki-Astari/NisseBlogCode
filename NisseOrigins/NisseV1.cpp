@@ -63,10 +63,9 @@ class HttpRequest
 
     public:
         HttpRequest(Socket& socket);
-        bool isValid() const {return status.errorCode == 200;}
-
         ErrorStatus const&  getStatus()         const   {return status;}
         std::string const&  getURI()            const   {return URI;}
+        bool isValid() const {return status.errorCode == 200;}
 
     private:
         std::tuple<std::string, std::string>                splitHeader(std::string_view header);
@@ -81,6 +80,7 @@ class HttpResponse
     public:
         HttpResponse(HttpRequest const& request);
 
+        bool isValid() const {return status.errorCode == 200;}
         void send(Socket& socket, std::filesystem::path const& contentDir);
     private:
         std::filesystem::path getFilePath(std::filesystem::path const& contentDir);
@@ -210,18 +210,21 @@ void WebServer::handleConnection(Socket& socket)
     //       So while there is data to processes then loop over it.
     while (socket.hasData())
     {
+        std::clog << "  Parsing HTTP Request\n";
         HttpRequest     request(socket);
         HttpResponse    response(request);
         response.send(socket, contentDir);
 
-        if (!request.isValid())
+        if (!response.isValid())
         {
             // If there was an issue with the request.
             // Anything on the stream is suspect so close it down.
             socket.close();
+            std::clog << "  Manualy closing connection\n";
             // Note: This will break the loop.
         }
     }
+    std::clog << "  Request Complete\n";
 }
 
 // Server
@@ -480,14 +483,15 @@ HttpRequest::HttpRequest(Socket& socket)
         status.errorCode = 405;
         status.errorMessage = "Method Not Allowed";
         status.humanInformation = Message{} << "HTTP method '" << method << "' is not supported";
-        std::clog << "  Bad Request: Not A GET\n";
+        firstLine.remove_suffix(2);
+        std::clog << "  Bad Request: Not A GET: " << firstLine << "\n";
         return;
     }
     if (version != "HTTP/1.1") {
         status.errorCode = 400;
         status.errorMessage = "Bad Request";
         status.humanInformation = Message{} << "HTTP version '" << version << "' is not supported";
-        std::clog << "  Bad Request: Not HTTP/1.1\n";
+        std::clog << "  Bad Request: Not HTTP/1.1: " << firstLine << "\n";
         return;
     }
 
@@ -563,7 +567,7 @@ void HttpResponse::send(Socket& socket, std::filesystem::path const& contentDir)
         socket.sendMessage("content-length: 0\r\n");
         socket.sendMessage("\r\n");
         socket.sync();
-        std::clog << "  Send: " << status.errorCode << " >" << status.errorMessage << "<\n";
+        std::clog << "  Send: " << status.errorCode << " " << status.errorMessage << "\n";
         return;
     }
 
@@ -600,7 +604,7 @@ std::filesystem::path HttpResponse::getFilePath(std::filesystem::path const& con
         status.errorCode = 400;
         status.errorMessage = "Bad Request";
         status.humanInformation = Message{} << "Invalid Request Path: " << requestPath;
-        std::cerr << "  Invalid request path: " << requestPath << "\n";
+        std::clog << "  Invalid request path: " << requestPath << "\n";
         return {};
     }
 
@@ -612,8 +616,8 @@ std::filesystem::path HttpResponse::getFilePath(std::filesystem::path const& con
     if (ec || !std::filesystem::is_regular_file(filePath)) {
         status.errorCode = 404;
         status.errorMessage = "Not Found";
-        status.humanInformation = Message{} << "No file found at: /" << uriPath;
-        std::cerr << "  Invalid file path: " << filePath << "\n";
+        status.humanInformation = Message{} << "No file found at: " << uriPath;
+        std::clog << "  Invalid file path: " << filePath << " for URI " << uriPath << "\n";
         return {};
     }
 
