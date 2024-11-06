@@ -267,6 +267,7 @@ Socket Server::accept()
         if (accept == -1 && errno == EINTR) {
             continue;
         }
+        std::clog << "Accepted Connection\n";
         if (accept == -1) {
             throw std::runtime_error{Message{} << "Failed to accept socket: " << errno << " " << strerror(errno)};
         }
@@ -466,12 +467,14 @@ HttpRequest::HttpRequest(Socket& socket)
         status.errorCode = 405;
         status.errorMessage = "Method Not Allowed";
         status.humanInformation = Message{} << "HTTP method '" << method << "' is not supported";
+        std::clog << "  Bad Request: Not A GET\n";
         return;
     }
     if (version != "HTTP/1.1") {
         status.errorCode = 400;
         status.errorMessage = "Bad Request";
         status.humanInformation = Message{} << "HTTP version '" << version << "' is not supported";
+        std::clog << "  Bad Request: Not HTTP/1.1\n";
         return;
     }
 
@@ -483,9 +486,12 @@ HttpRequest::HttpRequest(Socket& socket)
             bodySize = std::stoi(value);
         }
     }
-    if (status.errorCode == 200) {
-        socket.ignore(bodySize);
+    if (status.errorCode != 200) {
+        return;
     }
+
+    socket.ignore(bodySize);
+    std::clog << "  Request: " << method << " " << URI << " " << version << " Body: " << bodySize << "\n";
 }
 
 std::tuple<std::string, std::string, std::string> HttpRequest::splitFirstLine(std::string_view firstLine)
@@ -517,6 +523,7 @@ std::tuple<std::string, std::string> HttpRequest::splitHeader(std::string_view h
         status.errorCode = 400;
         status.errorMessage = "Bad Request";
         status.humanInformation = Message{} << "HTTP message header badly formatted '" << header << "'";
+        std::clog << "  Bad Header: " << header << "\n";
         return {std::string{header}, ""};
     }
     std::string     name{std::begin(header), std::begin(header) + sep};
@@ -543,6 +550,7 @@ void HttpResponse::send(Socket& socket, std::filesystem::path const& contentDir)
         socket.sendMessage("content-length: 0\r\n");
         socket.sendMessage("\r\n");
         socket.sync();
+        std::clog << "  Send: " << status.errorCode << " " << status.errorMessage << "\n";
         return;
     }
 
@@ -562,6 +570,7 @@ void HttpResponse::send(Socket& socket, std::filesystem::path const& contentDir)
             socket.sendMessage("\n");
         }
     }
+    std::clog << "  Send: 200 OK\n";
     socket.sync();
 }
 
@@ -578,6 +587,7 @@ std::filesystem::path HttpResponse::getFilePath(std::filesystem::path const& con
         status.errorCode = 400;
         status.errorMessage = "Bad Request";
         status.humanInformation = Message{} << "Invalid Request Path: " << requestPath;
+        std::cerr << "  Invalid request path: " << requestPath << "\n";
         return {};
     }
 
@@ -589,10 +599,12 @@ std::filesystem::path HttpResponse::getFilePath(std::filesystem::path const& con
     if (ec || !std::filesystem::is_regular_file(filePath)) {
         status.errorCode = 404;
         status.errorMessage = "Not Found";
-        status.humanInformation = Message{} << "No file found at: " << requestPath;
+        status.humanInformation = Message{} << "No file found at: /" << uriPath;
+        std::cerr << "  Invalid file path: " << filePath << "\n";
         return {};
     }
 
+    std::clog << "  File: " << filePath << "\n";
     return filePath;
 }
 
