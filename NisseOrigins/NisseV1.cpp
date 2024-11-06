@@ -94,7 +94,8 @@ class Socket
     std::vector<char>   buffer;
     std::vector<char>   outputBuffer;
     std::string_view    currentLine;
-    bool                moreData;
+    bool                readAvail;
+    bool                writeAvail;
     public:
         Socket(int fd);
         ~Socket();
@@ -116,7 +117,7 @@ class Socket
         void sync();
 
         bool isOpen()   const {return fd != 0;}
-        bool hasData()  const {return !buffer.empty() || moreData;}
+        bool hasData()  const {return !buffer.empty() || readAvail;}
         void close();
     private:
         void removeCurrentLine();
@@ -279,7 +280,8 @@ Socket Server::accept()
 // ======
 Socket::Socket(int fd)
     : fd{fd}
-    , moreData{true}
+    , readAvail{true}
+    , writeAvail{true}
 {
     buffer.reserve(outputBufferMax);
     outputBuffer.reserve(outputBufferMax);
@@ -310,7 +312,7 @@ void Socket::swap(Socket& other) noexcept
     swap(buffer,        other.buffer);
     swap(outputBuffer,  other.outputBuffer);
     swap(currentLine,   other.currentLine);
-    swap(moreData,      other.moreData);
+    swap(readAvail,     other.readAvail);
 }
 
 void Socket::close()
@@ -325,7 +327,7 @@ void Socket::close()
         buffer.clear();
         outputBuffer.clear();
         currentLine ="";
-        moreData = false;
+        readAvail = false;
     }
 }
 
@@ -337,7 +339,7 @@ std::string_view Socket::getNextLine()
         return currentLine;
     }
 
-    while (moreData)
+    while (readAvail)
     {
         readMoreData(inputBufferGrowth);
         if (checkLineInBuffer()) {
@@ -395,18 +397,22 @@ void Socket::readMoreData(std::size_t maxSize, bool required)
     std::size_t     amountRead  = 0;
     buffer.resize(currentSize + maxSize);
 
-    while (moreData && amountRead != maxSize)
+    while (readAvail && amountRead != maxSize)
     {
         int nextChunk = ::read(fd, &buffer[0] + currentSize + amountRead, maxSize - amountRead);
         if (nextChunk == -1 && errno == EINTR) {
             continue;
+        }
+        if (nextChunk == -1 && errno == ECONNRESET) {
+            readAvail = false;
+            break;
         }
         if (nextChunk == -1) {
             throw std::runtime_error(Message{} << "Catastrophic read failure: " << errno << " " << strerror(errno));
         }
         if (nextChunk == 0) {
             // Stream closed.
-            moreData = false;
+            readAvail = false;
         }
         amountRead += nextChunk;
         if (!required) {
@@ -418,6 +424,9 @@ void Socket::readMoreData(std::size_t maxSize, bool required)
 
 void Socket::sendMessage(std::string const& message)
 {
+    if (!writeAvail) {
+        return;
+    }
     if (outputBuffer.size() + message.size() > outputBufferMax)
     {
         sync();
@@ -440,11 +449,15 @@ void Socket::sync()
 void Socket::sendData(char const* data, std::size_t size)
 {
     std::size_t sentData = 0;
-    while (sentData != size)
+    while (writeAvail && sentData != size)
     {
         ::ssize_t writeStatus = ::write(fd, data + sentData, size - sentData);
         if (writeStatus == -1 && errno == EINTR) {
             continue;
+        }
+        if (writeStatus == -1 && errno == ECONNRESET) {
+            writeAvail = false;
+            break;
         }
         if (writeStatus == -1) {
             throw std::runtime_error(Message{} << "Failed to write: " << fd << " Code: " << errno << " " << strerror(errno));
@@ -550,7 +563,7 @@ void HttpResponse::send(Socket& socket, std::filesystem::path const& contentDir)
         socket.sendMessage("content-length: 0\r\n");
         socket.sendMessage("\r\n");
         socket.sync();
-        std::clog << "  Send: " << status.errorCode << " " << status.errorMessage << "\n";
+        std::clog << "  Send: " << status.errorCode << " >" << status.errorMessage << "<\n";
         return;
     }
 
