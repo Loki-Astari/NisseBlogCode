@@ -296,8 +296,10 @@ Socket::~Socket()
 }
 
 Socket::Socket(Socket&& move) noexcept
+    : fd(-1)
+    , readAvail{false}
+    , writeAvail{false}
 {
-    close();
     swap(move);
 }
 
@@ -316,6 +318,7 @@ void Socket::swap(Socket& other) noexcept
     swap(outputBuffer,  other.outputBuffer);
     swap(currentLine,   other.currentLine);
     swap(readAvail,     other.readAvail);
+    swap(writeAvail,    other.writeAvail);
 }
 
 void Socket::close()
@@ -331,6 +334,7 @@ void Socket::close()
         outputBuffer.clear();
         currentLine ="";
         readAvail = false;
+        writeAvail = false;
     }
 }
 
