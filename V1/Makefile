@@ -7,7 +7,7 @@ NisseV1:
 
 
 #
-# These are targets that my NeoVim plugins use to syntax highlighting.
+# These are targets that my NeoVim plugins use for syntax highlighting.
 neovimflags:
 	@echo $(CXXFLAGS)
 
