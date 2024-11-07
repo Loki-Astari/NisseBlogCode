@@ -500,7 +500,7 @@ HttpRequest::HttpRequest(Socket& socket)
     }
 
     std::string_view header;
-    while ((header = socket.getNextLine()) != "\r\n"sv && status.errorCode == 200)
+    while (status.errorCode == 200 && (header = socket.getNextLine()) != "\r\n"sv)
     {
         auto [name, value] = splitHeader(header);
         if (name == "content-length"s) {
