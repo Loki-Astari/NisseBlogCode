@@ -11,6 +11,7 @@
 
 #include <ThorsSocket/Server.h>
 #include <ThorsSocket/SocketStream.h>
+#include <ThorsSocket/SocketUtil.h>
 #include <ThorsLogging/ThorsLogging.h>
 
 #include <sys/socket.h>
@@ -94,31 +95,48 @@ class WebServer
     bool                            finished;
     std::filesystem::path const&    contentDir;
     public:
-        WebServer(int port, std::filesystem::path const& contentDir);
+        WebServer(ThorsAnvil::ThorsSocket::ServerInit&& serverInit, std::filesystem::path const& contentDir);
 
         void run();
     private:
         void handleConnection(ThorsAnvil::ThorsSocket::SocketStream& socket);
 };
 
+ThorsAnvil::ThorsSocket::ServerInit getServerInit(int port, std::optional<std::filesystem::path> certPath)
+{
+    if (!certPath.has_value()) {
+        return ThorsAnvil::ThorsSocket::ServerInfo{port};
+    }
+
+    ThorsAnvil::ThorsSocket::CertificateInfo     certificate{std::filesystem::canonical(std::filesystem::path(*certPath) /= "fullchain.pem"),
+                                                             std::filesystem::canonical(std::filesystem::path(*certPath) /= "privkey.pem")
+                                                            };
+    ThorsAnvil::ThorsSocket::SSLctx              ctx{ThorsAnvil::ThorsSocket::SSLMethodType::Server, certificate};
+    return ThorsAnvil::ThorsSocket::SServerInfo{port, std::move(ctx)};
+}
+
 // The application body.
 
 
 int main(int argc, char* argv[])
 {
-    if (argc != 3)
+    if (argc != 4 && argc != 3)
     {
-        std::cerr << "Usage: NisseV1 <port> <documentPath>" << "\n";
+        std::cerr << "Usage: NisseV1 <port> <documentPath> [<SSL Certificate Path>]" << "\n";
         return 1;
     }
 
     try
     {
         static const int port = std::stoi(argv[1]);
-        static const std::filesystem::path  contentDir  = std::filesystem::canonical(argv[2]);
+        static const std::filesystem::path      contentDir  = std::filesystem::canonical(argv[2]);
+        std::optional<std::filesystem::path>    certDir;
+        if (argc == 4) {
+            certDir = std::filesystem::canonical(argv[3]);
+        }
 
         std::cout << "Nisse Proto 1\n";
-        WebServer   server(port, contentDir);
+        WebServer   server(getServerInit(port, certDir), contentDir);
         server.run();
     }
     catch(std::exception const& e)
@@ -139,8 +157,8 @@ int main(int argc, char* argv[])
 
 // WebServer
 // =========
-WebServer::WebServer(int port, std::filesystem::path const& contentDir)
-    : connection{port}
+WebServer::WebServer(ThorsAnvil::ThorsSocket::ServerInit&& serverInit, std::filesystem::path const& contentDir)
+    : connection{std::move(serverInit)}
     , finished{false}
     , contentDir{contentDir}
 {}
