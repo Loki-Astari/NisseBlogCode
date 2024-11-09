@@ -400,6 +400,12 @@ bool Socket::checkLineInBuffer()
 
 void Socket::readMoreData(std::size_t maxSize, bool required)
 {
+    // This function read "MoreData" onto the end of buffer.
+    // Note: There may be data already in buffer so this appends it.
+    //       We will read no more than "maxSize" more data into buffer.
+    // The required flag indicates if we must read "maxSize" if true
+    // the loop will continue until we get all the data otherwise the
+    // function returns after any data is received.
     std::size_t     currentSize = std::size(buffer);
     std::size_t     amountRead  = 0;
     buffer.resize(currentSize + maxSize);
@@ -408,24 +414,25 @@ void Socket::readMoreData(std::size_t maxSize, bool required)
     {
         int nextChunk = ::read(fd, &buffer[0] + currentSize + amountRead, maxSize - amountRead);
         if (nextChunk == -1 && errno == EINTR) {
-            continue;
+            continue;           // An interrupt can be ignored. Simply try again.
         }
         if (nextChunk == -1 && errno == ECONNRESET) {
-            readAvail = false;
-            break;
+            readAvail = false;  // The client dropped the connection. Not a problem
+            break;              // But no more data can be read from the socket.
         }
         if (nextChunk == -1) {
+            buffer.resize(currentSize + amountRead);
             throw std::runtime_error(Message{} << "Catastrophic read failure: " << errno << " " << strerror(errno));
         }
-        if (nextChunk == 0) {
-            // Stream closed.
-            readAvail = false;
+        if (nextChunk == 0) {   // The connection was closed gracefully.
+            readAvail = false;  // OS handled all the niceties.
         }
         amountRead += nextChunk;
         if (!required) {
-            break;
+            break;  // have some data. Lets exit and see if it is enough.
         }
     }
+    // Make sure to set the buffer to the correct size.
     buffer.resize(currentSize + amountRead);
 }
 
