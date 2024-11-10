@@ -1,3 +1,5 @@
+#include "JobQueue.h"
+
 #include <ThorsSocket/Server.h>
 #include <ThorsSocket/SocketStream.h>
 #include <ThorsSocket/SocketUtil.h>
@@ -9,10 +11,12 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <map>
 #include <tuple>
 #include <exception>
 #include <stdexcept>
 #include <filesystem>
+#include <mutex>
 
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -91,11 +95,13 @@ class HttpResponse
 
 class WebServer
 {
-    ThorsAnvil::ThorsSocket::Server connection;
-    bool                            finished;
-    std::filesystem::path const&    contentDir;
+
+    ThorsAnvil::ThorsSocket::Server     connection;
+    bool                                finished;
+    std::filesystem::path const&        contentDir;
+    ThorsAnvil::Nisse::Server::JobQueue jobQueue;
     public:
-        WebServer(ThorsAnvil::ThorsSocket::ServerInit&& serverInit, std::filesystem::path const& contentDir);
+        WebServer(std::size_t workerCount, ThorsAnvil::ThorsSocket::ServerInit&& serverInit, std::filesystem::path const& contentDir);
 
         void run();
     private:
@@ -133,6 +139,8 @@ ThorsAnvil::ThorsSocket::ServerInit getServerInit(int port, std::optional<std::f
 
 int main(int argc, char* argv[])
 {
+    static constexpr std::size_t workerCount = 4;
+
     if (argc != 4 && argc != 3)
     {
         std::cerr << "Usage: NisseV1 <port> <documentPath> [<SSL Certificate Path>]" << "\n";
@@ -149,7 +157,7 @@ int main(int argc, char* argv[])
         }
 
         std::cout << "Nisse Proto 1\n";
-        WebServer   server(getServerInit(port, certDir), contentDir);
+        WebServer   server(workerCount, getServerInit(port, certDir), contentDir);
         server.run();
     }
     catch(std::exception const& e)
@@ -170,19 +178,31 @@ int main(int argc, char* argv[])
 
 // WebServer
 // =========
-WebServer::WebServer(ThorsAnvil::ThorsSocket::ServerInit&& serverInit, std::filesystem::path const& contentDir)
+WebServer::WebServer(std::size_t workerCount, ThorsAnvil::ThorsSocket::ServerInit&& serverInit, std::filesystem::path const& contentDir)
     : connection{std::move(serverInit)}
     , finished{false}
     , contentDir{contentDir}
+    , jobQueue{workerCount}
 {}
 
 void WebServer::run()
 {
+    std::mutex openSocketMutex;
+    std::map<int, ThorsAnvil::ThorsSocket::SocketStream>         openSockets;
+
     while (!finished)
     {
-        ThorsAnvil::ThorsSocket::SocketStream socket = connection.accept();
+        ThorsAnvil::ThorsSocket::SocketStream newSocket = connection.accept();
+        int fd = newSocket.getSocket().socketId();
 
-        handleConnection(socket);
+        std::unique_lock<std::mutex>    lock(openSocketMutex);
+        auto [iter, ok] = openSockets.insert_or_assign(fd, std::move(newSocket));
+
+        jobQueue.addJob([&, &socket = iter->second](){
+            handleConnection(socket);
+            std::unique_lock<std::mutex>    lock(openSocketMutex);
+            openSockets.erase(iter);
+        });
     }
 }
 
