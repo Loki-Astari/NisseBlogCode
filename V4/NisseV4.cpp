@@ -99,6 +99,12 @@ class WebServer
     ThorsAnvil::ThorsSocket::Server     connection;
     bool                                finished;
     std::filesystem::path const&        contentDir;
+    // State information that can be used by the threads.
+    // Objects placed in a std::map are not moved once inserted so taking
+    // a reference to them is safe and can be used by another thread.
+    std::mutex openSocketMutex;
+    std::map<int, ThorsAnvil::ThorsSocket::SocketStream>         openSockets;
+    // A JobQueue that holds a pool of threads to execute inserted jobs asynchronously.
     ThorsAnvil::Nisse::Server::JobQueue jobQueue;
     public:
         WebServer(std::size_t workerCount, ThorsAnvil::ThorsSocket::ServerInit&& serverInit, std::filesystem::path const& contentDir);
@@ -187,21 +193,30 @@ WebServer::WebServer(std::size_t workerCount, ThorsAnvil::ThorsSocket::ServerIni
 
 void WebServer::run()
 {
-    std::mutex openSocketMutex;
-    std::map<int, ThorsAnvil::ThorsSocket::SocketStream>         openSockets;
-
     while (!finished)
     {
+        // Main thread waits for a new connection.
         ThorsAnvil::ThorsSocket::SocketStream newSocket = connection.accept();
-        int fd = newSocket.getSocket().socketId();
 
+        // Add the “newSocket” into the std::map object “openSockets”
+        int fd = newSocket.getSocket().socketId();
         std::unique_lock<std::mutex>    lock(openSocketMutex);
         auto [iter, ok] = openSockets.insert_or_assign(fd, std::move(newSocket));
 
-        jobQueue.addJob([&, &socket = iter->second](){
+        // Add a lambda to the JobQueue to handle the newly created socket.
+        // Note: A copy of the “iter” is placed in the object “iterator” so we can use
+        //       this to extract a reference to the socket object. This is thread safe
+        //       as iterators to std::map are not invalidated by operations on the map
+        //       (as long as the object is not deleted).
+        jobQueue.addJob([&, iterator = iter](){
+            // Get a reference to the socket.
+            auto& socket = iterator->second;
+            // Handle the reference as before.
             handleConnection(socket);
+            // Once processing is complete remove the storage for Socket
+            // and cleanup any associated storage.
             std::unique_lock<std::mutex>    lock(openSocketMutex);
-            openSockets.erase(iter);
+            openSockets.erase(iterator);
         });
     }
 }
