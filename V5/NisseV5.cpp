@@ -21,14 +21,10 @@
 namespace NisServer = ThorsAnvil::Nisse::Server;
 namespace TASock    = ThorsAnvil::ThorsSocket;
 
-
 /*
  * Class Declarations:
  *
  *      WebServer:          A class to represent and manage incoming connections.
- *
- * Notes:
- *      Socket/Server class has been replaced by TASock::SocketStream / TASock::Server
  */
 
 class WebServer
