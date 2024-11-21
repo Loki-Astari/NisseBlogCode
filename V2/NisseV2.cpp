@@ -148,7 +148,7 @@ int main(int argc, char* argv[])
             certDir = std::filesystem::canonical(argv[3]);
         }
 
-        std::cout << "Nisse Proto 1\n";
+        std::cout << "Nisse Proto 2\n";
         WebServer   server(getServerInit(port, certDir), contentDir);
         server.run();
     }
