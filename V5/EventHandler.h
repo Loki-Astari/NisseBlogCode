@@ -65,6 +65,7 @@ class EventHandler
         void run();
         void stop();
         void add(int fd, Handler&& h);
+        void restore(int fd, bool read);
 
     private:
         friend void ::eventCallback(evutil_socket_t fd, short eventType, void* data);

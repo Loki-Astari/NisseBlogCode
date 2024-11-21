@@ -1,5 +1,5 @@
 #include "EventHandler.h"
-#include "JobQueue.h"
+#include "../V4/JobQueue.h"
 
 /*
  * C Callback functions.
@@ -47,6 +47,16 @@ void EventHandler::add(int fd, Handler&& h)
                      };
 
     handlerMap[fd].read.add();
+}
+
+void EventHandler::restore(int fd, bool read)
+{
+    if (read) {
+        handlerMap[fd].read.add();
+    }
+    else {
+        handlerMap[fd].write.add();
+    }
 }
 
 void EventHandler::eventAction(int fd, EventType)
