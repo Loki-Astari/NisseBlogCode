@@ -13,7 +13,7 @@ CXXFLAGS	= -std=c++20
 LDFLAGS		= -L$(THORSLIB_ROOT)/lib
 LDLIBS		= -lThorsLogging -lThorsSocket -levent
 
-NisseV5:	NisseV5.o JobQueue.o EventHandler.o
+NisseV5:	NisseV5.o ../V2/HTTPStuff.o JobQueue.o EventHandler.o
 
 
 #

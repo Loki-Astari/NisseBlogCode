@@ -6,12 +6,13 @@ THORSLIB_ROOT	= /opt/homebrew
 
 #
 # These are the flags that build the project.
+CC			= $(CXX)
 CPPFLAGS	= -I$(THORSLIB_ROOT)/include
 CXXFLAGS	= -std=c++20
 LDFLAGS		= -L$(THORSLIB_ROOT)/lib
 LDLIBS		= -lThorsLogging -lThorsSocket
 
-NisseV2:
+NisseV2:	NisseV2.o HTTPStuff.o
 
 
 #
