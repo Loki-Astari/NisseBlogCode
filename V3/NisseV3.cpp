@@ -1,5 +1,5 @@
 #include "../V1/Stream.h"
-#include "ServerInit.h"
+#include "../V2/ServerInit.h"
 
 #include <ThorsSocket/Server.h>
 #include <ThorsSocket/SocketStream.h>
@@ -15,7 +15,6 @@ namespace TASock    = ThorsAnvil::ThorsSocket;
  * Class Declarations:
  *
  *      Socket:             An implementation of Stream Interface using TASock::SocketStream
- *      Server:             Was replaced by TASock::Server
  *      WebServer:          A class to represent and manage incoming connections.
  *
  */
@@ -54,9 +53,9 @@ class WebServer
 
 int main(int argc, char* argv[])
 {
-    if (argc != 3)
+    if (argc != 4 && argc != 3)
     {
-        std::cerr << "Usage: NisseV1 <port> <documentPath>" << "\n";
+        std::cerr << "Usage: NisseV1 <port> <documentPath> [<SSL Certificate Path>]" << "\n";
         return 1;
     }
 
@@ -64,9 +63,13 @@ int main(int argc, char* argv[])
     {
         static const int port = std::stoi(argv[1]);
         static const std::filesystem::path      contentDir  = std::filesystem::canonical(argv[2]);
+        std::optional<std::filesystem::path>    certDir;
+        if (argc == 4) {
+            certDir = std::filesystem::canonical(argv[3]);
+        }
 
-        std::cout << "Nisse Proto 2\n";
-        WebServer   server(getServerInit(port, {}), contentDir);
+        std::cout << "Nisse Proto 3\n";
+        WebServer   server(getServerInit(port, certDir), contentDir);
         server.run();
     }
     catch(std::exception const& e)

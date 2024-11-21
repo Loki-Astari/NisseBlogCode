@@ -7,13 +7,9 @@
  */
 void eventCallback(evutil_socket_t fd, short eventType, void* data)
 {
-    ThorsAnvil::Nisse::Server::EventHandler&    eventHandler = *reinterpret_cast<ThorsAnvil::Nisse::Server::EventHandler*>(data);
-    eventHandler.eventAction(fd, static_cast<ThorsAnvil::Nisse::Server::EventType>(eventType));
+    EventHandler&    eventHandler = *reinterpret_cast<EventHandler*>(data);
+    eventHandler.eventAction(fd, static_cast<EventType>(eventType));
 }
-
-namespace TASock   = ThorsAnvil::ThorsSocket;
-
-using namespace ThorsAnvil::Nisse::Server;
 
 /*
  * EventLib wrapper. Set up C-Function callbacks

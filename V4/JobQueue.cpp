@@ -1,8 +1,6 @@
 #include "JobQueue.h"
 #include <ThorsLogging/ThorsLogging.h>
 
-using namespace ThorsAnvil::Nisse::Server;
-
 JobQueue::JobQueue(std::size_t workerCount)
     : finished{false}
 {

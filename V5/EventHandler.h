@@ -35,9 +35,6 @@ extern "C" void eventCallback(evutil_socket_t fd, short eventType, void* data);
 
 namespace TASock   = ThorsAnvil::ThorsSocket;
 
-namespace ThorsAnvil::Nisse::Server
-{
-
 class JobQueue;
 struct StreamData;
 struct ServerData;
@@ -71,7 +68,5 @@ class EventHandler
         friend void ::eventCallback(evutil_socket_t fd, short eventType, void* data);
         void eventAction(int fd, EventType type);
 };
-
-}
 
 #endif

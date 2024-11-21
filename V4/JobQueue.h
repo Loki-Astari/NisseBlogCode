@@ -16,9 +16,6 @@
 #include <mutex>
 #include <condition_variable>
 
-namespace ThorsAnvil::Nisse::Server
-{
-
 using Work    = std::function<void()>;
 class JobQueue
 {
@@ -40,7 +37,5 @@ class JobQueue
         void                processWork();
         void                markFinished();
 };
-
-}
 
 #endif

@@ -1,5 +1,5 @@
-#include "../V2/Stream.h"
-
+#include "../V1/Stream.h"
+#include "../V2/ServerInit.h"
 #include "../V4/JobQueue.h"
 #include "EventHandler.h"
 
@@ -11,21 +11,38 @@
 #include <iostream>
 #include <exception>
 #include <mutex>
+#include <map>
 
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <sys/uio.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-
-namespace NisServer = ThorsAnvil::Nisse::Server;
 namespace TASock    = ThorsAnvil::ThorsSocket;
 
 /*
  * Class Declarations:
  *
+ *      Socket:             An implementation of Stream Interface using TASock::SocketStream
  *      WebServer:          A class to represent and manage incoming connections.
+ *
  */
+
+class Socket: public Stream
+{
+    TASock::SocketStream    stream;
+    public:
+        Socket(TASock::SocketStream&& stream)
+            : stream(std::move(stream))
+        {}
+
+        virtual std::string_view    getNextLine()               override
+        {
+            static std::string line;
+            std::getline(stream, line);
+            return line;
+        }
+        virtual void ignore(std::size_t size)                   override {stream.ignore(size);}
+        virtual void sendMessage(std::string const& message)    override {stream << message;}
+        virtual void sync()                                     override {stream.sync();}
+        virtual bool hasData()  const                           override {return static_cast<bool>(stream);}
+        virtual void close()                                    override {stream.close();}
+};
 
 class WebServer
 {
@@ -36,11 +53,11 @@ class WebServer
     // State information that can be used by the threads.
     // Objects placed in a std::map are not moved once inserted so taking
     // a reference to them is safe and can be used by another thread.
-    std::mutex openSocketMutex;
-    std::map<int, TASock::SocketStream> openSockets;
+    std::mutex                          openSocketMutex;
+    std::map<int, Socket>               openSockets;
     // A JobQueue that holds a pool of threads to execute inserted jobs asynchronously.
-    NisServer::JobQueue                 jobQueue;
-    NisServer::EventHandler             eventHandler;
+    JobQueue                            jobQueue;
+    EventHandler                        eventHandler;
     public:
         WebServer(std::size_t workerCount, TASock::ServerInit&& serverInit, std::filesystem::path const& contentDir);
 
@@ -49,35 +66,6 @@ class WebServer
         void newConnectionHandler(int fd);
         void normalConnectionHandler(int fd);
 };
-
-TASock::ServerInit getServerInit(int port, std::optional<std::filesystem::path> certPath)
-{
-    // If there is only a port.
-    // i.e. The user did not provide a certificate path return a `ServerInfo` object.
-    // This will create a normal listening socket.
-    if (!certPath.has_value()) {
-        return TASock::ServerInfo{port};
-    }
-
-    // If we have a certificate path.
-    // Use this to create a certificate object.
-    // This assumes the standard names for these files as provided by "Let's encrypt".
-    TASock::CertificateInfo     certificate{std::filesystem::canonical(std::filesystem::path(*certPath) /= "fullchain.pem"),
-                                            std::filesystem::canonical(std::filesystem::path(*certPath) /= "privkey.pem")
-                                           };
-    TASock::SSLctx              ctx{TASock::SSLMethodType::Server, certificate};
-
-    // Now that we have created the appropriate SSL objects needed.
-    // We return an SServierInfo object.
-    // Please Note: This is a different type to the ServerInfo returned above (one less S in the name).
-    return TASock::SServerInfo{port, std::move(ctx)};
-
-    // We can return these two two different types because
-    // ServerInit is actually a std::variant<ServerInfo, SServerInfo>
-}
-
-// The application body.
-
 
 int main(int argc, char* argv[])
 {
@@ -140,10 +128,11 @@ void WebServer::newConnectionHandler(int)
 {
     std::cerr << "newConnectionHandler\n";
     // Main thread waits for a new connection.
-    TASock::SocketStream newSocket = connection.accept();
+    TASock::SocketStream socketStream = connection.accept();
+    int fd = socketStream.getSocket().socketId();
+    Socket newSocket(std::move(socketStream));
 
     // Add the “newSocket” into the std::map object “openSockets”
-    int fd = newSocket.getSocket().socketId();
     std::unique_lock<std::mutex>    lock(openSocketMutex);
     auto [iter, ok] = openSockets.insert_or_assign(fd, std::move(newSocket));
 
@@ -156,7 +145,8 @@ void WebServer::normalConnectionHandler(int fd)
     jobQueue.addJob([&](){
         std::cerr << "Job Running\n";
         // Get a reference to the socket.
-        auto& socket = openSockets[fd];
+        auto find = openSockets.find(fd);
+        auto& socket = find->second;
         // Handle the reference as before.
         handleConnection(socket, contentDir);
         // Once processing is complete remove the storage for Socket

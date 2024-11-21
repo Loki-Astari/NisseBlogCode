@@ -11,9 +11,6 @@
 #include <event2/event.h>
 #include <utility>
 
-namespace ThorsAnvil::Nisse::Server
-{
-
 using LibEventEventBase     = ::event_base;
 using LibEventEvent         = ::event;
 using LibEventTimeOut       = ::timeval;
@@ -90,7 +87,5 @@ class Event
         }
 };
 
-
-}
 
 #endif

@@ -6,13 +6,14 @@ THORSLIB_ROOT	= /opt/homebrew
 
 #
 # These are the flags that build the project.
+# The linker uses CC by default to link objects.
 CC			= $(CXX)
 CPPFLAGS	= -I$(THORSLIB_ROOT)/include
 CXXFLAGS	= -std=c++20
 LDFLAGS		= -L$(THORSLIB_ROOT)/lib
 LDLIBS		= -lThorsLogging -lThorsSocket
 
-NisseV2:	NisseV2.o ../V1/HTTPStuff.o ServerInit.o
+NisseV3:	NisseV3.o ../V1/HTTPStuff.o ../V2/ServerInit.o
 
 
 #

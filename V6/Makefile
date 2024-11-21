@@ -14,7 +14,7 @@ CXXFLAGS	= -std=c++20
 LDFLAGS		= -L$(THORSLIB_ROOT)/lib -L$(BOOST_ROOT)/lib
 LDLIBS		= -lThorsLogging -lThorsSocket -levent -lboost_coroutine-mt -lboost_context-mt
 
-NisseV6:	NisseV6.o ../V2/HTTPStuff.o ../V4/JobQueue.o ../V5/EventHandler.o
+NisseV6:	NisseV6.o ../V1/HTTPStuff.o ../V2/ServerInit.o ../V4/JobQueue.o ../V5/EventHandler.o
 
 
 #
