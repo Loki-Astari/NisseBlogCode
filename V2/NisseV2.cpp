@@ -6,9 +6,7 @@
 #include <ThorsLogging/ThorsLogging.h>
 
 #include <iostream>
-#include <string>
 #include <exception>
-#include <filesystem>
 
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -46,19 +44,19 @@ ThorsAnvil::ThorsSocket::ServerInit getServerInit(int port, std::optional<std::f
     }
 
     // If we have a certificate path.
-    // Use this to create a certificate objext.
+    // Use this to create a certificate object.
     // This assumes the standard names for these files as provided by "Let's encrypt".
     ThorsAnvil::ThorsSocket::CertificateInfo     certificate{std::filesystem::canonical(std::filesystem::path(*certPath) /= "fullchain.pem"),
                                                              std::filesystem::canonical(std::filesystem::path(*certPath) /= "privkey.pem")
                                                             };
     ThorsAnvil::ThorsSocket::SSLctx              ctx{ThorsAnvil::ThorsSocket::SSLMethodType::Server, certificate};
 
-    // Now that we have created the approporiate SSL objects needed.
+    // Now that we have created the appropriate SSL objects needed.
     // We return an SServierInfo object.
     // Please Note: This is a different type to the ServerInfo returned above (one less S in the name).
     return ThorsAnvil::ThorsSocket::SServerInfo{port, std::move(ctx)};
 
-    // We can return these two two different types becuase
+    // We can return these two two different types because
     // ServerInit is actually a std::variant<ServerInfo, SServerInfo>
 }
 

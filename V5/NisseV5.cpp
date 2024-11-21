@@ -9,16 +9,7 @@
 #include <ThorsLogging/ThorsLogging.h>
 
 #include <iostream>
-#include <sstream>
-#include <fstream>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <map>
-#include <tuple>
 #include <exception>
-#include <stdexcept>
-#include <filesystem>
 #include <mutex>
 
 #include <sys/socket.h>
@@ -73,19 +64,19 @@ TASock::ServerInit getServerInit(int port, std::optional<std::filesystem::path> 
     }
 
     // If we have a certificate path.
-    // Use this to create a certificate objext.
+    // Use this to create a certificate object.
     // This assumes the standard names for these files as provided by "Let's encrypt".
     TASock::CertificateInfo     certificate{std::filesystem::canonical(std::filesystem::path(*certPath) /= "fullchain.pem"),
                                             std::filesystem::canonical(std::filesystem::path(*certPath) /= "privkey.pem")
                                            };
     TASock::SSLctx              ctx{TASock::SSLMethodType::Server, certificate};
 
-    // Now that we have created the approporiate SSL objects needed.
+    // Now that we have created the appropriate SSL objects needed.
     // We return an SServierInfo object.
     // Please Note: This is a different type to the ServerInfo returned above (one less S in the name).
     return TASock::SServerInfo{port, std::move(ctx)};
 
-    // We can return these two two different types becuase
+    // We can return these two two different types because
     // ServerInit is actually a std::variant<ServerInfo, SServerInfo>
 }
 

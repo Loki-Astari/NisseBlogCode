@@ -5,13 +5,10 @@
 #include <ThorsSocket/SocketUtil.h>
 #include <ThorsLogging/ThorsLogging.h>
 
-#include <iostream>
-#include <fstream>
 #include <string>
 #include <string_view>
 #include <vector>
-#include <tuple>
-#include <filesystem>
+#include <fstream>
 
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -230,7 +227,7 @@ std::filesystem::path HttpResponse::getFilePath(std::filesystem::path const& con
 
 void handleConnection(ThorsAnvil::ThorsSocket::SocketStream& socket, std::filesystem::path const& contentDir)
 {
-    // Note: The requestor can send multiple requests on the same connection.
+    // Note: The requester can send multiple requests on the same connection.
     //       So while there is data to processes then loop over it.
     while (socket)
     {
